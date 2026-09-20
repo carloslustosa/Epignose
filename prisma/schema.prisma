@@ -1,0 +1,334 @@
+// ---------------------------------------------------------------------------
+// Epignose — Schema do banco de dados (PostgreSQL)
+// ---------------------------------------------------------------------------
+// COMO CONFIGURAR (Hostinger / VPS):
+//   1. Crie um banco PostgreSQL (Hostinger VPS, Supabase, Neon ou Railway).
+//   2. Coloque a connection string em `.env` na variavel DATABASE_URL, ex.:
+//        DATABASE_URL="postgresql://usuario:senha@host:5432/epignose?schema=public"
+//   3. Rode:  npx prisma migrate dev --name init   (dev)
+//             npx prisma migrate deploy            (producao)
+// ---------------------------------------------------------------------------
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ===========================================================================
+// USUARIOS / PESQUISADORES
+// ===========================================================================
+
+enum UserRole {
+  RESEARCHER // pesquisador comum
+  REVIEWER   // revisor credenciado (peer review)
+  ADMIN
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  handle    String   @unique // @carloslustosa
+  name      String
+  avatarUrl String?
+  bio       String?  @db.Text
+  role      UserRole @default(RESEARCHER)
+
+  // Credenciais academicas (exibidas no card do autor e na pagina de leitura)
+  institution String?
+  field       String? // area principal de pesquisa, ex: "Direito Digital"
+  lattesUrl   String?
+  orcid       String? @unique
+
+  // Hash da senha. Se voce usar OAuth (NextAuth / Clerk / Supabase Auth),
+  // este campo pode ficar nulo — veja src/lib/auth.ts.
+  passwordHash String?
+
+  posts     Post[]
+  comments  Comment[]
+  likes     Like[]
+  ratings   Rating[]
+  searches  ReferenceSearch[]
+
+  followedBy Follow[] @relation("following")
+  following  Follow[] @relation("follower")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([field])
+}
+
+model Follow {
+  id          String @id @default(cuid())
+  followerId  String
+  followingId String
+
+  follower  User @relation("follower", fields: [followerId], references: [id], onDelete: Cascade)
+  following User @relation("following", fields: [followingId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([followerId, followingId])
+  @@index([followingId])
+}
+
+// ===========================================================================
+// POSTS / ARTIGOS
+// ===========================================================================
+
+enum FileType {
+  PDF
+  DOCX
+}
+
+enum PostStatus {
+  DRAFT
+  PUBLISHED
+  UNDER_REVIEW
+  RETRACTED // retirado (ex.: plagio confirmado)
+}
+
+model Post {
+  id     String     @id @default(cuid())
+  status PostStatus @default(PUBLISHED)
+
+  // Extraidos automaticamente do arquivo (src/lib/extract.ts),
+  // mas editaveis pelo autor antes de publicar.
+  title    String
+  abstract String @db.Text
+  content  String? @db.Text // texto completo extraido, usado pela busca e pela leitura inline
+
+  // ---------- Arquivo ----------
+  fileUrl  String   // URL publica no Supabase Storage / S3
+  fileKey  String   // caminho/chave interna no bucket (para delete e signed URLs)
+  fileName String
+  fileType FileType
+  fileSize Int      // bytes
+  pageCount Int?
+
+  // ---------- Sistema Anti-Plagio ----------
+  // SHA-256 do binario do arquivo. UNICO no banco: impede que o mesmo
+  // documento seja republicado por outra conta. Ver src/lib/hash.ts.
+  fileHash String @unique
+
+  // Hash do texto normalizado (minusculas, sem espacos/pontuacao). Detecta
+  // reupload do mesmo conteudo salvo em outro formato ou reexportado.
+  contentHash String?
+  // Similaridade (0-100) com o documento mais parecido ja existente.
+  similarityScore Float?
+  // Post com o qual houve maior similaridade, se houver.
+  duplicateOfId   String?
+
+  // ---------- Metadados originais do documento ----------
+  // Lidos do proprio PDF/DOCX. Servem de prova de autoria e de alerta quando
+  // o "Author" do arquivo nao bate com quem esta publicando.
+  docAuthor    String?
+  docTitle     String?
+  docProducer  String?
+  docCreatedAt  DateTime?
+  docModifiedAt DateTime?
+  metadata     Json? // dump completo dos metadados crus
+
+  doi      String? @unique
+  language String  @default("pt-BR")
+
+  authorId String
+  author   User   @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  tags     Tag[]     @relation("PostTags")
+  comments Comment[]
+  likes    Like[]
+  ratings  Rating[]
+
+  viewCount     Int @default(0)
+  downloadCount Int @default(0)
+
+  publishedAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([authorId])
+  @@index([publishedAt])
+  @@index([contentHash])
+  @@index([status, publishedAt])
+}
+
+model Tag {
+  id    String @id @default(cuid())
+  slug  String @unique // "direito-digital"
+  label String // "Direito Digital"
+  posts Post[] @relation("PostTags")
+
+  createdAt DateTime @default(now())
+}
+
+// ===========================================================================
+// PEER REVIEW — comentarios em thread, criticas e avaliacoes
+// ===========================================================================
+
+enum CommentKind {
+  COMMENT           // comentario livre
+  CONSTRUCTIVE      // critica construtiva
+  METHODOLOGY       // apontamento metodologico
+  REFERENCE_REQUEST // pedido de referencia/fonte
+}
+
+model Comment {
+  id   String      @id @default(cuid())
+  kind CommentKind @default(COMMENT)
+  body String      @db.Text
+
+  // Debate sobre um trecho especifico do artigo: guardamos a citacao
+  // e a posicao (offset de caracteres) dentro de Post.content.
+  quotedText  String? @db.Text
+  quoteStart  Int?
+  quoteEnd    Int?
+  pageNumber  Int?
+
+  postId String
+  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  authorId String
+  author   User   @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  // Thread: um comentario pode responder outro (profundidade livre).
+  parentId String?
+  parent   Comment?  @relation("CommentThread", fields: [parentId], references: [id], onDelete: Cascade)
+  replies  Comment[] @relation("CommentThread")
+
+  upvotes   Int      @default(0)
+  isResolved Boolean @default(false) // o autor marcou a critica como endereçada
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([postId, createdAt])
+  @@index([parentId])
+}
+
+model Rating {
+  id    String @id @default(cuid())
+  score Int    // 1 a 5 estrelas
+
+  // Criterios academicos separados (opcionais, 1 a 5).
+  rigor       Int?
+  originality Int?
+  clarity     Int?
+  review      String? @db.Text
+
+  postId String
+  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([postId, userId]) // um pesquisador avalia cada artigo uma vez
+  @@index([postId])
+}
+
+model Like {
+  id String @id @default(cuid())
+
+  postId String
+  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([postId, userId])
+  @@index([postId])
+}
+
+// ===========================================================================
+// BUSCADOR DE REFERENCIAS IA — historico de pesquisas
+// ===========================================================================
+
+enum ReferenceKind {
+  JURISPRUDENCE // jurisprudencia
+  DOCTRINE      // doutrina
+  ARTICLE       // artigo cientifico
+  BOOK
+  NEWS          // noticia / reportagem
+  LEGISLATION
+  OTHER
+}
+
+enum SearchStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+model ReferenceSearch {
+  id     String       @id @default(cuid())
+  status SearchStatus @default(PENDING)
+
+  // O que o pesquisador digitou.
+  topic String @db.Text
+  // Filtros escolhidos na UI (tipos de referencia, recorte temporal, idioma).
+  filters Json?
+
+  // Consultas efetivamente enviadas ao buscador, reescritas pelo LLM.
+  expandedQueries String[]
+  // Sintese geral do tema produzida pela IA, exibida acima dos resultados.
+  summary String? @db.Text
+
+  model       String? // ex.: "gpt-4o"
+  searchProvider String? // ex.: "tavily"
+  tokensUsed  Int?
+  durationMs  Int?
+  errorMessage String? @db.Text
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  results ReferenceResult[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, createdAt])
+}
+
+model ReferenceResult {
+  id   String        @id @default(cuid())
+  kind ReferenceKind @default(OTHER)
+
+  title String
+  url   String
+  source String? // "STJ", "Revista de Direito Publico", "Folha de S.Paulo"...
+  publishedAt DateTime?
+  authors String[]
+
+  // Resumo do conteudo da referencia, gerado pela IA.
+  summary String @db.Text
+
+  // ADEQUACAO: paragrafo explicando como esta referencia se encaixa
+  // especificamente no tema informado pelo usuario. E o diferencial do produto.
+  relevance String @db.Text
+
+  // 0-100, quao aderente ao tema (usado para ordenar os cards).
+  relevanceScore Int @default(0)
+
+  // Citacao pronta para colar no trabalho (ABNT).
+  citationAbnt String? @db.Text
+
+  isSaved Boolean @default(false) // o pesquisador salvou na biblioteca dele
+
+  searchId String
+  search   ReferenceSearch @relation(fields: [searchId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([searchId, relevanceScore])
+}

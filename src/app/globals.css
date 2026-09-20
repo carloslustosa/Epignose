@@ -1,0 +1,120 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ---------------------------------------------------------------------------
+   Epignose — tokens de tema (shadcn/ui, padrao "slate").
+   Light mode por padrao; dark mode nativo via classe .dark no <html>
+   (controlada pelo next-themes em src/components/theme-provider.tsx).
+--------------------------------------------------------------------------- */
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222 47% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    /* Azul-petroleo academico: sobrio, alto contraste em ambos os temas. */
+    --primary: 201 96% 32%;
+    --primary-foreground: 210 40% 98%;
+
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222 47% 11%;
+
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%;
+
+    --accent: 210 40% 96%;
+    --accent-foreground: 222 47% 11%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
+    --ring: 201 96% 32%;
+
+    --radius: 0.75rem;
+  }
+
+  .dark {
+    --background: 222 47% 7%;
+    --foreground: 210 40% 96%;
+
+    --card: 222 45% 10%;
+    --card-foreground: 210 40% 96%;
+
+    --popover: 222 45% 10%;
+    --popover-foreground: 210 40% 96%;
+
+    --primary: 199 89% 60%;
+    --primary-foreground: 222 47% 9%;
+
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 210 40% 96%;
+
+    --muted: 217 33% 15%;
+    --muted-foreground: 215 20% 65%;
+
+    --accent: 217 33% 17%;
+    --accent-foreground: 210 40% 96%;
+
+    --destructive: 0 63% 50%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 217 33% 18%;
+    --input: 217 33% 20%;
+    --ring: 199 89% 60%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+  /* Scrollbar discreta, no tom do tema. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-border;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+@layer components {
+  /* Tipografia da pagina de leitura do artigo (ArticleView):
+     coluna estreita, entrelinha generosa, serifada — leitura longa. */
+  .prose-article {
+    @apply font-serif text-[1.0625rem] leading-[1.85] text-foreground/90;
+  }
+  .prose-article h2 {
+    @apply mb-3 mt-10 font-sans text-xl font-semibold tracking-tight text-foreground;
+  }
+  .prose-article h3 {
+    @apply mb-2 mt-8 font-sans text-base font-semibold tracking-tight text-foreground;
+  }
+  .prose-article p {
+    @apply mb-5;
+  }
+  .prose-article blockquote {
+    @apply my-6 border-l-2 border-primary/40 pl-5 italic text-muted-foreground;
+  }
+  /* Trecho do artigo que recebeu critica em thread. */
+  .prose-article mark.peer-note {
+    @apply cursor-pointer rounded bg-amber-200/50 px-0.5 text-foreground no-underline
+           decoration-amber-500 underline-offset-4 transition-colors hover:bg-amber-200
+           dark:bg-amber-500/25 dark:hover:bg-amber-500/40;
+  }
+}
