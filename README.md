@@ -23,6 +23,22 @@ aberta.
 Sem nenhuma chave de API configurada, a aplicação sobe em **modo demonstração**: todas as
 telas navegam com dados de exemplo e um aviso indica o que falta no `.env`.
 
+## Protótipo estático (sem build)
+
+`prototype/index.html` é um arquivo único que abre direto no navegador, sem Node e sem
+instalar nada. Ele espelha as três telas centrais do produto — feed, leitura com revisão por
+pares e o Buscador de Referências IA (com o pipeline do agente animado) — e serve para
+mostrar a interface a orientadores, bancas e investidores antes de provisionar servidor.
+
+```bash
+# macOS
+open prototype/index.html
+# Linux
+xdg-open prototype/index.html
+```
+
+A aplicação real está em `src/`; o protótipo não compartilha código com ela.
+
 ## Stack
 
 - **Next.js 15** (App Router, Server Components, Server Actions) + **React 19** + TypeScript
